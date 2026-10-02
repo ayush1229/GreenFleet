@@ -23,3 +23,13 @@ def test_candidates_stable_and_missing_factor_logged():
     excluded = build_candidates(bad,None)
     assert not excluded.items
     assert excluded.exclusions["missing_price"] > 0
+
+
+def test_reposition_uses_declared_speed_grid():
+    from greenfleet.ingest import demo_dataset
+    from greenfleet.candidates import build_candidates
+    s=demo_dataset().scenario
+    s=replace(s,vessels=(s.vessels[0],),max_candidates=10000)
+    c=build_candidates(s,None)
+    choices={x.speed_kn for x in c.items if x.kind=="reposition" and x.start==s.start and x.origin=="A" and x.destination=="B"}
+    assert choices=={10,10.5,11}

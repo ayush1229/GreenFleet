@@ -12,6 +12,11 @@ def _slots(start,end,step,extras=()):
     return sorted({start+timedelta(hours=i*step) for i in range(n+1)} | {t for t in extras if start<=t<=end})
 
 
+def _speeds(vessel,step):
+    n=int((vessel.max_speed_kn-vessel.min_speed_kn)/step)
+    return sorted({vessel.min_speed_kn+i*step for i in range(n+1)} | {vessel.max_speed_kn})
+
+
 def build_candidates(scenario,predictor=None,cancel=None):
     s=scenario
     errors=validate_scenario(s)
@@ -46,9 +51,7 @@ def build_candidates(scenario,predictor=None,cancel=None):
                 loads=sorted({r.demand_t*f for f in (s.load_bands if r.allow_split else (1,)) if r.demand_t*f<=v.capacity_t})
                 if not loads:
                     excluded["capacity"]+=1;continue
-                speeds=[v.min_speed_kn+i*s.speed_step_kn for i in range(int((v.max_speed_kn-v.min_speed_kn)/s.speed_step_kn)+1)]
-                if speeds[-1]<v.max_speed_kn:
-                    speeds.append(v.max_speed_kn)
+                speeds=_speeds(v,s.speed_step_kn)
                 for f in sorted(v.tanks):
                     for speed in speeds:
                         latest=r.deadline-timedelta(hours=r.loading_h+r.unloading_h+r.distance_nm/speed)
@@ -69,7 +72,7 @@ def build_candidates(scenario,predictor=None,cancel=None):
                 origin,dest=route.split(">")
                 for start in _slots(s.start,s.end,s.departure_step_h):
                     for fuel in sorted(v.tanks):
-                        for speed in (v.min_speed_kn,v.max_speed_kn):
+                        for speed in _speeds(v,s.speed_step_kn):
                             yield Candidate("",v.id,"reposition",origin,dest,fuel,start,speed_kn=speed,distance_nm=distance)
             # Bunkering and changeover are genuine selectable actions, never hidden purchases.
             for p in s.ports:
