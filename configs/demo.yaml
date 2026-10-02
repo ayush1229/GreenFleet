@@ -1,0 +1,10 @@
+synthetic: true
+seed: 17
+method: greedy
+budget: 128
+max_candidates: 2000
+seeds: 20
+methods: [greedy, alns, nsga2, qie]
+normalization: [1000000, 100000, 100000]
+weights: [0.3333333333333333, 0.3333333333333333, 0.3333333333333333]
+reference_point: [2, 2, 2]
