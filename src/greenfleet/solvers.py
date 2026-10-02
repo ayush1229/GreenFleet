@@ -93,7 +93,7 @@ class Evaluator:
         return RunResult(status,plans,self.last_violations,compliance,metadata)
 
 
-def repair_plan(preferred,evaluator,weights=None):
+def repair_plan(preferred,evaluator,weights=None,insertion="greedy"):
     """Deterministic insertion from the frozen universe. Every trial consumes budget."""
     e=evaluator;s=e.s
     e.repair_calls+=1
@@ -106,7 +106,11 @@ def repair_plan(preferred,evaluator,weights=None):
             costs[c.id]=sum(w*x/n for w,x,n in zip(weights or s.weights,estimate.nominal.objectives,s.normalization)) if estimate.eligible else float("inf")
         return (c.id not in preferred_ids,c.start,costs[c.id],c.id)
     helpers=[c for c in e.c.items if c.kind!="service"]
-    for r in sorted(s.services,key=lambda x:(x.release,x.deadline,x.id)):
+    def request_priority(r):
+        values=sorted(score(c)[2] for c in e.c.items if c.service_id==r.id)
+        regret=(values[1]-values[0]) if len(values)>1 else float("inf")
+        return (r.release,-regret if insertion=="regret" else 0,r.deadline,r.id)
+    for r in sorted(s.services,key=request_priority):
         remaining=r.demand_t
         options=sorted((c for c in e.c.items if c.service_id==r.id and c.kind=="service"),key=score)
         for c in options:
@@ -172,4 +176,108 @@ def solve(scenario,candidates,method,config,cancel=None,progress=None):
         return greedy_solve(scenario,candidates,config,cancel,progress)
     if method=="exact_tiny":
         return exact_tiny_solve(scenario,candidates,config,cancel,progress)
+    if method in ("alns","nsga2","qie"):
+        return {"alns":alns_solve,"nsga2":nsga2_solve,"qie":qie_solve}[method](scenario,candidates,config,cancel,progress)
     raise ValueError(f"unknown solver {method}")
+
+
+def alns_solve(scenario,candidates,config,cancel=None,progress=None):
+    import numpy as np
+    e=Evaluator(scenario,candidates,config,"alns",cancel,progress)
+    proof=prove_simple_infeasibility(scenario)
+    if proof:
+        return e.result(proof)
+    rng=np.random.default_rng(config.seed)
+    operator_weights=np.ones(3);iterations=0;operator_log=[]
+    scalarizations=[scenario.weights,(1.,0.,0.),(0.,1.,0.),(0.,0.,1.)]
+    try:
+        current=repair_plan((),e)
+        while True:
+            e.check_stop()
+            op=int(rng.choice(3,p=operator_weights/operator_weights.sum()))
+            services=[c for c in current.selected if c.kind=="service"]
+            count=max(1,len(services)//2)
+            if op==0:
+                removed={c.id for c in rng.choice(services,min(count,len(services)),replace=False)} if services else set()
+            elif op==1:
+                removed={c.id for c in sorted(services,key=lambda c:balanced_score(evaluate_candidate(c,scenario).nominal.objectives,scenario),reverse=True)[:count]}
+            else:
+                origin=services[int(rng.integers(len(services)))].origin if services else None
+                removed={c.id for c in services if c.origin==origin}
+            keep=[c for c in current.selected if c.id not in removed]
+            # Diversification changes choices only within the shared, frozen candidate set.
+            alternatives=[c for c in candidates.items if c.kind=="service" and c.id not in removed]
+            if alternatives:
+                keep.append(alternatives[int(rng.integers(len(alternatives)))])
+            before=len(e.archive)
+            weights=scalarizations[iterations%len(scalarizations)]
+            proposed=repair_plan(keep,e,weights,insertion="regret" if iterations%2 else "greedy")
+            new=evaluate_plan(proposed,scenario).nominal.objectives
+            old=evaluate_plan(current,scenario).nominal.objectives
+            delta=sum(w*(a-b)/n for w,a,b,n in zip(weights,new,old,scenario.normalization))
+            feasible=e.complete(proposed) and not e.last_violations
+            temperature=.01/(1+iterations*.05)
+            accepted=feasible and (delta<=0 or rng.random()<np.exp(-min(delta/temperature,700)))
+            if accepted:
+                current=proposed
+            reward=5 if len(e.archive)>before else 2 if accepted else .5
+            operator_weights[op]=.8*operator_weights[op]+.2*reward
+            operator_log.append({"iteration":iterations,"removal":["random","worst_cost","related_origin"][op],"insertion":"regret" if iterations%2 else "greedy","accepted":bool(accepted),"weights":weights})
+            iterations+=1
+    except SearchStopped:
+        pass
+    result=e.result()
+    return replace(result,metadata={**result.metadata,"alns_operator_log":operator_log,"operator_weights":operator_weights.tolist(),"adaptation":"prototype scalarized multi-objective ALNS"})
+
+
+def qie_solve(scenario,candidates,config,cancel=None,progress=None):
+    from .qie import SearchProblem,qie_search
+    e=Evaluator(scenario,candidates,config,"qie",cancel,progress)
+    proof=prove_simple_infeasibility(scenario)
+    if proof:
+        return e.result(proof)
+    if not candidates.items:
+        e.check(Plan(()));return e.result()
+    trace=None;generations=[]
+    def evaluate(bits):
+        p=repair_plan([c for c,b in zip(candidates.items,bits) if b],e)
+        violations,obj=e.check(p)
+        return (len(violations)/max(1,len(scenario.services)),*(x/n for x,n in zip(obj,scenario.normalization)))
+    try:
+        repair_plan((),e)
+        trace=qie_search(SearchProblem(len(candidates.items),evaluate,True,generations.append),config)
+    except SearchStopped:
+        pass
+    r=e.result()
+    return replace(r,metadata={**r.metadata,"qie_generations":generations,"qie_encoding":"one bit per immutable action; deterministic repair; feasibility/nondomination/crowding ranking"})
+
+
+def nsga2_solve(scenario,candidates,config,cancel=None,progress=None):
+    import numpy as np
+    from pymoo.algorithms.moo.nsga2 import NSGA2
+    from pymoo.core.problem import ElementwiseProblem
+    from pymoo.operators.sampling.rnd import BinaryRandomSampling
+    from pymoo.operators.crossover.pntx import TwoPointCrossover
+    from pymoo.operators.mutation.bitflip import BitflipMutation
+    from pymoo.optimize import minimize
+    e=Evaluator(scenario,candidates,config,"nsga2",cancel,progress)
+    proof=prove_simple_infeasibility(scenario)
+    if proof:
+        return e.result(proof)
+    if not candidates.items:
+        e.check(Plan(()));return e.result()
+    class FleetProblem(ElementwiseProblem):
+        def __init__(self):
+            super().__init__(n_var=len(candidates.items),n_obj=3,n_ieq_constr=1,xl=0,xu=1,vtype=bool)
+        def _evaluate(self,x,out,*args,**kwargs):
+            p=repair_plan([c for c,b in zip(candidates.items,x) if b],e)
+            violations,obj=e.check(p)
+            out["F"]=np.array(obj)/scenario.normalization
+            out["G"]=np.array([len(violations)/max(1,len(scenario.services))])
+    try:
+        repair_plan((),e)
+        algorithm=NSGA2(pop_size=config.population_size,sampling=BinaryRandomSampling(),crossover=TwoPointCrossover(),mutation=BitflipMutation(),eliminate_duplicates=False)
+        minimize(FleetProblem(),algorithm,("n_eval",config.budget),seed=config.seed,verbose=False)
+    except SearchStopped:
+        pass
+    return e.result()

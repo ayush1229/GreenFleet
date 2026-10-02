@@ -124,6 +124,8 @@ def _fit_model(rows,s,method,seed,params=None,features=None):
 
 
 def fit_predictor(data,split,method,budget,seed):
+    if method in ("qie_tuned","random_tuned","qie_residual","random_residual"):
+        return _tuned_predictor(data,split,method,budget,seed)
     if method not in ("engineering","direct","residual"):
         raise ValueError("unknown predictor method")
     if budget<1:
@@ -139,6 +141,54 @@ def fit_predictor(data,split,method,budget,seed):
     start=time.perf_counter()
     model=None if method=="engineering" else _fit_model(train,data.scenario,method,seed)
     return Predictor(data.scenario,split,method,model,train,calibration,seed,{},NUMERIC,time.perf_counter()-start)
+
+
+def _tuned_predictor(data,split,method,budget,seed):
+    from .qie import SearchProblem,qie_search
+    from .contracts import SearchConfig
+    if budget<1:
+        raise ValueError("fit budget must be positive")
+    groups=[set(getattr(split,k)) for k in ("train","validation","calibration","test")]
+    if any(a&b for i,a in enumerate(groups) for b in groups[i+1:]):
+        raise ValueError("split leakage")
+    rows={o.id:o for o in data.observations}
+    train=[rows[x] for x in split.train];validation=[rows[x] for x in split.validation];calibration=[rows[x] for x in split.calibration]
+    if not train or not validation:
+        raise ValueError("tuning needs disjoint training and validation rows")
+    base="residual" if method.endswith("residual") else "direct"
+    start=time.perf_counter();history=[];best=None
+    points=[point_from_observation(o,data.scenario) for o in validation]
+    y=np.array([o.fuel_mass_kg/o.duration_h for o in validation])
+    def objective(bits):
+        nonlocal best
+        mask=np.array(bits[:len(NUMERIC)],dtype=bool)
+        # Deterministically repair empty masks; no invalid model fit consumes hidden budget.
+        if not mask.any():
+            mask[NUMERIC.index("speed_kn")]=True
+        features=[x for x,b in zip(NUMERIC,mask) if b]
+        code=int(bits[-4])*2+int(bits[-3]);reg=int(bits[-2])*2+int(bits[-1])
+        params={"learning_rate":[.03,.1,.2,.3][code],"l2_regularization":[0.,1.,10.,100.][reg]}
+        model=_fit_model(train,data.scenario,base,seed,params,features)
+        with threadpool_limits(limits=1):
+            values=model.predict(point_frame(points))
+        if base=="residual":
+            values+=np.array([engineering_rate(p,data.scenario) for p in points])
+        loss=float(np.mean(abs(y-np.maximum(0,values))))
+        history.append({"fit":len(history)+1,"loss":loss,"params":params,"features":features,"validation_ids":list(split.validation)})
+        if best is None or loss<best[0]:
+            best=(loss,model,params,features)
+        return loss
+    if method.startswith("qie"):
+        qie_search(SearchProblem(len(NUMERIC)+4,objective),SearchConfig(budget=budget,seed=seed))
+    else:
+        rng=np.random.default_rng(seed)
+        for _ in range(budget):
+            objective(rng.integers(0,2,len(NUMERIC)+4))
+    loss,model,params,features=best
+    p=Predictor(data.scenario,split,base,model,train,calibration,seed,{**params,"tuner":method,"validation":validation},features,time.perf_counter()-start)
+    p.tuning_history=history;p.fit_count=len(history)
+    p.tuning_method=method
+    return p
 
 
 def metrics(actual,predicted,lower=None,upper=None):

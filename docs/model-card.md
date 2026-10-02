@@ -20,3 +20,11 @@ Reports include MAE, RMSE, WAPE (null for zero denominator), interval coverage/
 width, sample counts, class metrics, fit/inference time and speed-grid diagnostics.
 Known/unseen results are never averaged into a single accuracy claim.
 No inference-time lag features or universal efficiency assumptions are used.
+
+QIE/random tuning uses the same six-feature mask and 4×4 learning-rate/L2 space.
+Empty masks are explicitly repaired to speed-only; every sampled code is valid.
+Each budget unit is exactly one training-only model fit. Validation MAE selects
+the retained model without a hidden final refit. Calibration is performed only
+after selection. Final test targets never influence parameters, masks or intervals.
+Both direct and physical-residual tuners are available. This is a **classical
+regression model with quantum-inspired tuning**, not a quantum predictor.

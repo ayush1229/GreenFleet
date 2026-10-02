@@ -42,3 +42,19 @@ def test_predictor_metrics_intervals_and_plausibility(method):
     assert 0 <= report["coverage"] <= 1
     assert report["synthetic"] is True
     assert report["plausibility"]["negative_rates"] == 0
+
+
+@pytest.mark.parametrize("method", ["qie_tuned", "random_tuned"])
+def test_final_test_never_tunes(method):
+    from greenfleet.ingest import demo_dataset
+    from greenfleet.splits import make_splits
+    from greenfleet.predict import fit_predictor
+    d=demo_dataset();split=make_splits(d,"future",2)
+    p=fit_predictor(d,split,method,4,11)
+    d2=replace(d,observations=tuple(replace(o,fuel_mass_kg=1e12,wave_m=1000) if o.id in split.test else o for o in d.observations))
+    q=fit_predictor(d2,split,method,4,11)
+    assert p.fit_count==q.fit_count==4
+    assert p.tuning_history==q.tuning_history
+    assert p.model_id==q.model_id
+    assert all(not set(row["validation_ids"])&set(split.test) for row in p.tuning_history)
+    assert all(row["features"] for row in p.tuning_history)
