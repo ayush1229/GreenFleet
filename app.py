@@ -36,3 +36,17 @@ with st.expander("Validation, provenance and assumptions"):
     st.json(primitive(data.manifest))
     st.write(f"Excluded observations: {len(data.quality_report)}")
     st.json(primitive(data.quality_report))
+
+with st.expander("Prediction baselines — separate held-out protocols"):
+    if st.button("Evaluate prediction baselines"):
+        from greenfleet.splits import make_splits
+        from greenfleet.predict import fit_predictor, prediction_report
+        reports=[]
+        for protocol in ("future", "unseen_vessel"):
+            for method in ("engineering", "direct", "residual"):
+                try:
+                    model=fit_predictor(data,make_splits(data,protocol,17),method,1,17)
+                    reports.append({"method":method,**prediction_report(model,data)})
+                except ValueError as exc:
+                    st.warning(f"{protocol}/{method}: {exc}")
+        st.json(reports)
