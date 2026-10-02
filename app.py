@@ -37,6 +37,21 @@ with st.expander("Validation, provenance and assumptions"):
     st.write(f"Excluded observations: {len(data.quality_report)}")
     st.json(primitive(data.quality_report))
 
+st.subheader("Conventional fleet baseline")
+if st.button("Run greedy baseline"):
+    from greenfleet.candidates import build_candidates
+    from greenfleet.solvers import solve
+    from greenfleet.contracts import SearchConfig
+    from greenfleet.accounting import evaluate_plan
+    with st.spinner("Building candidates and independently checking the plan..."):
+        candidates=build_candidates(scenario)
+        result=solve(scenario,candidates,"greedy",SearchConfig())
+    st.write(f"Run: {result.status} · Compliance: {result.compliance_status}")
+    if result.plans:
+        st.dataframe([primitive(c) for c in result.plans[0].selected],hide_index=True)
+        st.json(primitive(evaluate_plan(result.plans[0],scenario)))
+    st.json(primitive(result.metadata))
+
 with st.expander("Prediction baselines — separate held-out protocols"):
     if st.button("Evaluate prediction baselines"):
         from greenfleet.splits import make_splits
