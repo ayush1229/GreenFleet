@@ -62,6 +62,11 @@ def hours(start, end):
     return (end - start).total_seconds() / 3600
 
 
+def required_weather_cases(scenario):
+    """Nominal physics always applies; extra cases opt into robust feasibility."""
+    return tuple(w for i, w in enumerate(scenario.weather_cases) if i == 0 or w.required)
+
+
 @dataclass(frozen=True)
 class Tank(Record):
     capacity_kg: float

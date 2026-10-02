@@ -65,3 +65,35 @@ def test_known_hard_rule_rejected_unknown_separate():
     s,a,_ = setup_two_trips()
     s = replace(s, services=(s.services[0],), rules=(Rule("cap","demo","demo-1","energy_mj","MJ",1,"synthetic"),), rule_coverage_known=True)
     assert "hard_rule" in {v.code for v in check(s,a)}
+
+
+def test_optional_weather_cannot_disable_physical_checks():
+    from greenfleet.ingest import validate_scenario
+    from greenfleet.contracts import Tank
+    s,a,_=setup_two_trips()
+    s=replace(s,services=(s.services[0],),vessels=(replace(s.vessels[0],initial_port="B",tanks={"diesel":Tank(1000,0,0)}),),weather_cases=tuple(replace(w,required=False) for w in s.weather_cases))
+    assert "missing_required_weather" in {v.code for v in validate_scenario(s)}
+    # Direct checker callers must still get nominal physical violations.
+    codes={v.code for v in check(s,a)}
+    assert {"location","fuel_reserve"}<=codes
+
+
+def test_effective_rule_checks_later_trip_despite_earlier_outside_action():
+    from greenfleet.contracts import Rule,Tank,Plan
+    from greenfleet.accounting import evaluate_plan
+    s,a,b=setup_two_trips()
+    s=replace(s,vessels=(replace(s.vessels[0],tanks={"diesel":Tank(1000,100,0)}),),rules=(Rule("new-cap","demo","v1","energy_mj","MJ",1,"synthetic",valid_from=b.start),),rule_coverage_known=True)
+    e=evaluate_plan(Plan((a,b)),s)
+    assert e.rule_results[0]["status"]=="fail"
+    assert e.rule_results[0]["observed"]==900
+    assert "hard_rule" in {v.code for v in check(s,a,b)}
+
+
+def test_rule_boundary_crossing_does_not_hide_known_violation():
+    from greenfleet.contracts import Rule,Tank,Plan
+    from greenfleet.accounting import evaluate_plan
+    s,a,b=setup_two_trips()
+    s=replace(s,vessels=(replace(s.vessels[0],tanks={"diesel":Tank(1000,100,0)}),),rules=(Rule("cap","demo","v1","energy_mj","MJ",1,"synthetic",valid_from=s.start+timedelta(minutes=30)),),rule_coverage_known=True)
+    e=evaluate_plan(Plan((a,b)),s)
+    assert e.rule_results[0]["status"]=="fail"
+    assert "one" in e.rule_results[0]["boundary_crossing_ids"]

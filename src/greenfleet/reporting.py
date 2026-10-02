@@ -41,7 +41,7 @@ def export_run(result,output_dir):
         evaluation=evaluate_plan(plan,scenario)
         summaries.append({"plan_hash":plan.hash,**primitive(evaluation)})
         for c in sorted(plan.selected,key=lambda x:(x.start,x.vessel_id,x.id)):
-            row={"plan_hash":plan.hash,**primitive(c),"end_utc":c.end().isoformat(),"conservative_end_utc":max(c.end(w) for w in scenario.weather_cases if w.required).isoformat(),"support":c.prediction.support_status if c.prediction else "engineering_only"}
+            row={"plan_hash":plan.hash,**primitive(c),"end_utc":c.end().isoformat(),"conservative_end_utc":max(c.end(w) for w in required_weather_cases(scenario)).isoformat(),"support":c.prediction.support_status if c.prediction else "engineering_only"}
             deployment.append(row)
             if c.kind=="purchase":
                 purchases.append(row)

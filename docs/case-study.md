@@ -21,6 +21,8 @@ from capped candidates are approximate and cannot prove infeasibility.
 
 Held-out decision replay keeps selected actions fixed and changes independently
 simulated weather; it reports realized totals and schedule/fuel failures. No
+reselection occurs. The realized weather-case ID and all per-case totals are
+exported explicitly; the runner compares the independent adverse case. No
 counterfactual empirical regret or universal green-fuel ranking is claimed. All
 software evidence in this repository remains a **synthetic demonstration** until
 measured data, sourced factors, agreed operational selection weights and domain

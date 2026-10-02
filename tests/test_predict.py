@@ -58,3 +58,16 @@ def test_final_test_never_tunes(method):
     assert p.model_id==q.model_id
     assert all(not set(row["validation_ids"])&set(split.test) for row in p.tuning_history)
     assert all(row["features"] for row in p.tuning_history)
+
+
+def test_report_handles_fleet_vessel_without_observations():
+    from greenfleet.ingest import demo_dataset
+    from greenfleet.splits import make_splits
+    from greenfleet.predict import fit_predictor,prediction_report
+    d=demo_dataset()
+    new=replace(d.scenario.vessels[0],id="unobserved")
+    d=replace(d,scenario=replace(d.scenario,vessels=d.scenario.vessels+(new,)))
+    p=fit_predictor(d,make_splits(d,"future",1),"direct",1,1)
+    report=prediction_report(p,d)
+    assert report["test_count"]==48
+    assert "unobserved" in report["plausibility"]["insufficient_observations"]

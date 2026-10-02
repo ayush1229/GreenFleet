@@ -43,6 +43,10 @@ py -3.11 -m venv .venv
 constraints with compliance unverified. Requiring verified configured-rule
 compliance with missing coverage prevents a recommendation. A configured-rule pass
 is not a regulatory certificate. The demo hard emissions limit intentionally fails.
+Nominal physical feasibility is always checked. Rules are applied to individual
+events within their effective dates; a boundary-crossing event is reported as
+unknown until reliable segment data resolves it. It cannot hide a known violation
+from other fully applicable events.
 
 ## Reproduce from the CLI
 

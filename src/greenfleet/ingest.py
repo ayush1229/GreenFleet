@@ -102,6 +102,8 @@ def validate_scenario(scenario: Scenario) -> list[Violation]:
             fail("invalid_efficiency",e.engine_id,e.pathway_id)
     if not s.weather_cases or s.weather_cases[0].time_multiplier != 1 or s.weather_cases[0].energy_multiplier != 1:
         fail("missing_nominal_weather",s.id)
+    if not any(w.required for w in s.weather_cases):
+        fail("missing_required_weather",s.id)
     if any(w.time_multiplier <= 0 or w.energy_multiplier <= 0 or w.probability < 0 for w in s.weather_cases):
         fail("invalid_weather",s.id)
     if s.inventory_cost not in ("initial_sunk","consumption"):

@@ -125,7 +125,7 @@ def repair_plan(preferred,evaluator,weights=None,insertion="greedy"):
                 for kind,codes in (("reposition",{"location"}),("changeover",{"missing_changeover"}),("purchase",{"fuel_reserve"})):
                     if not codes.intersection(v.code for v in violations):
                         continue
-                    choices=[h for h in helpers if h.kind==kind and h.vessel_id==c.vessel_id and h.id not in {x.id for x in trial} and h.start<c.start and all(h.end(w)<=c.start for w in s.weather_cases if w.required)]
+                    choices=[h for h in helpers if h.kind==kind and h.vessel_id==c.vessel_id and h.id not in {x.id for x in trial} and h.start<c.start and all(h.end(w)<=c.start for w in required_weather_cases(s))]
                     choices.sort(key=lambda h:(h.id not in preferred_ids,-h.start.timestamp(),h.purchase_kg,h.id))
                     for h in choices:
                         proposed=trial+[h]

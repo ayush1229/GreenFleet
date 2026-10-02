@@ -27,6 +27,8 @@ def prove_simple_infeasibility(s):
 
 def validate_plan(plan,scenario,candidates,*,partial=False):
     s=scenario
+    if not s.weather_cases:
+        return [Violation("missing_nominal_weather",(s.id,))]
     out=[]
     def fail(code,*ids,observed=None,limit=None,unit=None):
         out.append(Violation(code,tuple(ids),observed,limit,unit))
@@ -88,9 +90,7 @@ def validate_plan(plan,scenario,candidates,*,partial=False):
     for c in selected:
         for reason in estimates[c.id].exclusions:
             fail(reason,c.id)
-    for case in s.weather_cases:
-        if not case.required:
-            continue
+    for case in required_weather_cases(s):
         reservations=defaultdict(list);pumps=defaultdict(list);berths=defaultdict(list)
         for v in s.vessels:
             path=sorted((c for c in selected if c.vessel_id==v.id),key=lambda c:(c.start,c.id))

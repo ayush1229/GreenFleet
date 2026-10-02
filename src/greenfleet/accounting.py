@@ -128,17 +128,43 @@ def evaluate_rules(plan,s,cases):
     checks=[]
     units={"energy_mj":"MJ","emissions_kg_co2e":"kg_CO2e","cost":s.currency}
     for rule in s.rules:
-        selected=tuple(c for c in plan.selected if (not rule.vessel_ids or c.vessel_id in rule.vessel_ids) and (not rule.pathway_ids or c.pathway_id in rule.pathway_ids))
-        status="unknown";value=None
-        if not selected:
+        status="unknown";value=None;overlap=False;missing_inputs=False
+        boundary=set();applicable=set();scoped={}
+        for case in required_weather_cases(s):
+            totals=[]
+            # Filter actual events, including the original path's idle intervals.
+            # Reconstructing a filtered subplan would invent waits before later trips.
+            events=plan.selected+tuple(waiting_actions(plan,s,case))
+            for c in events:
+                if rule.vessel_ids and c.vessel_id not in rule.vessel_ids or rule.pathway_ids and c.pathway_id not in rule.pathway_ids:
+                    continue
+                end=c.end(case)
+                if rule.valid_from and end<=rule.valid_from or rule.valid_to and c.start>=rule.valid_to:
+                    continue
+                overlap=True
+                if rule.valid_from and c.start<rule.valid_from or rule.valid_to and end>rule.valid_to:
+                    boundary.add(c.id)
+                    continue
+                estimate=evaluate_candidate(c,s)
+                if not estimate.eligible:
+                    missing_inputs=True
+                    continue
+                applicable.add(c.id)
+                totals.append(estimate.cases[case.id])
+            scoped[case.id]=sum_totals(totals)
+        if not overlap:
             status="not_applicable"
-        elif (rule.valid_from and all(c.end()<=rule.valid_from for c in selected)) or (rule.valid_to and all(c.start>=rule.valid_to for c in selected)):
-            status="not_applicable"
-        elif rule.applicability_known and rule.source and rule.metric in units and rule.unit==units[rule.metric] and (rule.valid_from is None or all(c.start>=rule.valid_from for c in selected)) and (rule.valid_to is None or all(c.end(case)<=rule.valid_to for c in selected for case in s.weather_cases if case.required)):
-            scoped=cases if len(selected)==len(plan.selected) else _totals_for(Plan(selected),s)[0]
-            value=max(getattr(scoped[w.id],rule.metric) for w in s.weather_cases if w.required)
-            status="pass" if value<=rule.threshold else "fail"
-        checks.append({"id":rule.id,"status":status,"observed":value,"threshold":rule.threshold,"unit":rule.unit,"severity":rule.severity,"scope":rule.jurisdiction,"source":rule.source,"version":rule.version})
+        elif rule.applicability_known and rule.source and rule.metric in units and rule.unit==units[rule.metric] and scoped:
+            value=max(getattr(t,rule.metric) for t in scoped.values())
+            # All supported metrics are additive/nonnegative. A known subset that
+            # already exceeds the cap is a sound failure even with an unknown boundary.
+            if value>rule.threshold:
+                status="fail"
+            elif boundary or missing_inputs:
+                status="unknown"
+            else:
+                status="pass"
+        checks.append({"id":rule.id,"status":status,"observed":value,"threshold":rule.threshold,"unit":rule.unit,"severity":rule.severity,"scope":rule.jurisdiction,"source":rule.source,"version":rule.version,"applicable_action_ids":sorted(applicable),"boundary_crossing_ids":sorted(boundary),"calculation":"maximum required-case sum of wholly applicable events; crossing events remain unknown"})
     compliance="noncompliant" if any(r["status"]=="fail" for r in checks) else "unknown" if not s.rule_coverage_known or not s.rules or any(r["status"]=="unknown" for r in checks) else "compliant"
     return tuple(checks),compliance
 

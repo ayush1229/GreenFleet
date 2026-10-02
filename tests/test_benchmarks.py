@@ -44,3 +44,16 @@ def test_heldout_decision_evaluation():
     assert result["realized"]["energy_mj"]==pytest.approx(1800)
     assert result["regret"] is None
     assert result["replay_label"]=="independently simulated conditions; not observed counterfactuals"
+
+
+def test_generated_heldout_reports_realized_adverse_case():
+    from greenfleet.benchmarks import evaluate_heldout_decision
+    from greenfleet.contracts import Plan,WeatherCase
+    from test_solvers import tiny
+    s,c=tiny();p=Plan((c.items[0],))
+    heldout=replace(s,weather_cases=(s.weather_cases[0],WeatherCase("independent_adverse",1.3,1.25)))
+    report=evaluate_heldout_decision(p,s,heldout,c,realized_case="independent_adverse")
+    assert report["chosen_plan_hash"]==p.hash
+    assert report["realized"]["energy_mj"]==pytest.approx(1462.5)
+    assert report["realized_case"]=="independent_adverse"
+    assert set(report["realized_cases"])=={"nominal","independent_adverse"}

@@ -212,12 +212,16 @@ def prediction_report(p,data):
         ids={v.id for v in data.scenario.vessels if v.type==vt}
         subset=[(o,r) for o,r in supported if o.vessel_id in ids]
         report["by_vessel_type"][vt]={"count":len(subset),**metrics([o.fuel_mass_kg/o.duration_h for o,r in subset],[r.rate_kg_h for o,r in subset])}
-    grid=[]
+    grid=[];insufficient=[]
     for v in data.scenario.vessels:
+        observation=next((o for o in data.observations if o.vessel_id==v.id),None)
+        if observation is None:
+            insufficient.append(v.id)
+            continue
         if not rows:
             continue
-        template=point_from_observation(next(o for o in data.observations if o.vessel_id==v.id),data.scenario)
+        template=point_from_observation(observation,data.scenario)
         values=p.predict([replace(template,speed_kn=float(speed)) for speed in np.linspace(v.min_speed_kn,v.max_speed_kn,5)])
         grid.extend(r.rate_kg_h for r in values if r.rate_kg_h is not None)
-    report["plausibility"]={"negative_rates":sum(x<0 for x in grid),"grid_count":len(grid),"clamped_at_zero":sum(x==0 for x in grid),"note":"Predeclared five-speed grid; diagnostics, not proof of extrapolation validity."}
+    report["plausibility"]={"negative_rates":sum(x<0 for x in grid),"grid_count":len(grid),"clamped_at_zero":sum(x==0 for x in grid),"insufficient_observations":insufficient,"note":"Predeclared five-speed grid; vessels without observations reported separately. Diagnostics, not proof of extrapolation validity."}
     return report

@@ -29,12 +29,15 @@ def hypervolume(objectives,reference_point,normalization):
     return float(HV(ref_point=np.array(reference_point))(np.array(objectives)/normalization))
 
 
-def evaluate_heldout_decision(plan,development,heldout,candidates):
+def evaluate_heldout_decision(plan,development,heldout,candidates,*,realized_case=None):
     # Re-score the same immutable deployment; do not choose again with hindsight.
     a=evaluate_plan(plan,development)
     b=evaluate_plan(plan,heldout)
+    case_id=realized_case or heldout.weather_cases[0].id
+    if case_id not in b.cases:
+        raise ValueError(f"unknown realized weather case: {case_id}")
     checked=validate_plan(plan,heldout,replace(candidates,scenario_hash=digest(heldout)))
-    return {"chosen_plan_hash":plan.hash,"development":primitive(a.nominal),"realized":primitive(b.nominal),"violations":primitive(checked),"regret":None,"replay_label":"independently simulated conditions; not observed counterfactuals"}
+    return {"chosen_plan_hash":plan.hash,"development":primitive(a.nominal),"realized":primitive(b.cases[case_id]),"realized_case":case_id,"realized_cases":primitive(b.cases),"violations":primitive(checked),"regret":None,"replay_label":"independently simulated conditions; not observed counterfactuals"}
 
 
 def paired_interval(values_a,values_b,seed=17):
@@ -127,7 +130,7 @@ def run_benchmarks(config_path: Path,output_dir: Path) -> Path:
                     best=min(result.plans,key=lambda p:balanced_score(evaluate_plan(p,s).nominal.objectives,s)) if result.plans else None
                     row={"comparison":comparison,"method":method,"seed":seed,"budget":config.budget,"timeout_s":config.timeout_s,"status":result.status,"evaluations":result.metadata["evaluations"],"repair_calls":result.metadata["repair_calls"],"runtime_s":perf_counter()-t,"stop_reason":result.metadata["stop_reason"],"hypervolume":hypervolume(objectives,reference,s.normalization),"objectives":objectives,"selected_totals":primitive(evaluate_plan(best,s).nominal) if best else None,"peak_rss_bytes":peak[0],"evaluator_hash":result.metadata["evaluator_hash"],"convergence":result.metadata["convergence"]}
                     if best:
-                        heldout.append({"comparison":comparison,"method":method,"seed":seed,**evaluate_heldout_decision(best,s,heldout_s,candidates)})
+                        heldout.append({"comparison":comparison,"method":method,"seed":seed,**evaluate_heldout_decision(best,s,heldout_s,candidates,realized_case="independent_adverse")})
                 except Exception as exc:
                     row={"comparison":comparison,"method":method,"seed":seed,"budget":config.budget,"status":"failed","error":f"{type(exc).__name__}: {exc}","runtime_s":perf_counter()-t,"evaluations":None,"hypervolume":None,"selected_totals":None,"peak_rss_bytes":peak[0]}
                 row.update({k:frozen[k] for k in ("dataset_hash","split_hash","candidate_hash","factor_hash")})
