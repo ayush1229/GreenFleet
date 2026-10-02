@@ -12,7 +12,7 @@ def _slots(start,end,step,extras=()):
     return sorted({start+timedelta(hours=i*step) for i in range(n+1)} | {t for t in extras if start<=t<=end})
 
 
-def build_candidates(scenario,predictor=None):
+def build_candidates(scenario,predictor=None,cancel=None):
     s=scenario
     errors=validate_scenario(s)
     if errors:
@@ -82,6 +82,8 @@ def build_candidates(scenario,predictor=None):
                         if len(v.tanks)>1:
                             yield Candidate("",v.id,"changeover",p.id,p.id,fuel,start,duration_h=.5)
     for c in generate():
+        if cancel and cancel():
+            raise InterruptedError("candidate creation cancelled")
         if not accept(c):
             break
     return CandidateSet(tuple(items),complete=not limited and not excluded,candidate_limit_reached=limited,exclusions=dict(excluded),stats={"considered":considered,"retained":len(items),"excluded":sum(excluded.values()),"enumeration_stopped":int(limited)},model_id=getattr(predictor,"model_id","engineering"),scenario_hash=digest(s))

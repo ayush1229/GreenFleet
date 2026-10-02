@@ -368,6 +368,9 @@ class SearchConfig(Record):
 class RunConfig(Record):
     method: str = "greedy"
     search: SearchConfig = field(default_factory=SearchConfig)
+    predictor_method: str = "engineering"
+    split_protocol: str = "future"
+    fit_budget: int = 4
 
 
 @dataclass(frozen=True)
