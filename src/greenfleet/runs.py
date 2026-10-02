@@ -66,7 +66,9 @@ def execute_run(scenario,config,output_dir,*,cancel=None,progress=None,dataset=N
             generation_s=perf_counter()-gen_start
             result=solve(scenario,candidates,config.method,config.search,cancel,progress)
             if cancel and cancel():
-                raise InterruptedError("cancelled during execution")
+                # Preserve completed evaluator calls and convergence diagnostics,
+                # but never expose a partial archive as a final recommendation.
+                result=replace(result,status="cancelled",plans=(),compliance_status="unknown",metadata={**result.metadata,"error":"cancelled during execution"})
             if result.status=="completed":
                 final=[v for p in result.plans for v in validate_plan(p,scenario,candidates)]
                 if final:

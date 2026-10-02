@@ -49,3 +49,5 @@ def test_mid_search_cancel_discards_archive(tmp_path):
     r=execute_run(demo_dataset().scenario,RunConfig(method="qie",search=SearchConfig(budget=100)),tmp_path,cancel=event.is_set,progress=progress)
     assert r.status=="cancelled"
     assert not r.plans
+    assert r.metadata["evaluations"]>=4
+    assert r.metadata["convergence"]

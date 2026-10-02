@@ -6,7 +6,7 @@ def tiny():
     from greenfleet.contracts import Candidate, CandidateSet
     from greenfleet.ingest import demo_dataset
     s = demo_dataset().scenario
-    v = replace(s.vessels[0], auxiliary_kw=0, power_coefficient=.1)
+    v = replace(s.vessels[0], auxiliary_kw=0, power_coefficient=.1, max_speed_kn=12)
     r = replace(s.services[0], distance_nm=10, loading_h=0, unloading_h=0, demand_t=100)
     s = replace(s,vessels=(v,),services=(r,),weather_cases=(s.weather_cases[0],))
     a = Candidate("slow",v.id,"service","A","B","diesel",s.start,r.id,10,10,100)
@@ -91,6 +91,7 @@ def test_nondominated_feasible_archive():
     from greenfleet.contracts import SearchConfig,Plan
     s,c=tiny();e=Evaluator(s,c,SearchConfig(),"test")
     e.check(Plan((c.items[1],)))
+    assert len(e.archive)==1  # The fast option must itself be a valid comparison.
     e.check(Plan((c.items[0],)))
     e.check(Plan(c.items))
     assert len(e.archive)==1
